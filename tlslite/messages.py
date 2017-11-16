@@ -389,7 +389,7 @@ class ServerHello(HandshakeMsg):
         while 1:
             if pa.atLengthCheck():
                 break
-            alpnEntry = int(pa.getVarBytes(1))
+            alpnEntry = str(pa.getVarBytes(1))
             protos.append(alpnEntry)
         pa.stopLengthCheck()
         if len(protos) == 1:

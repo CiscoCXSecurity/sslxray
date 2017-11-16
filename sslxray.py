@@ -149,7 +149,14 @@ def tryConnectionWithCipherSuites(version, cipherSuites, sendSSLv2=False, curves
             serverHello = ServerHello().parse(packetParser)
             serverRandomValues.append(serverHello.random)
             if serverHello.alpn_protocol is not None:
-                serverALPNProtocols.add(serverHello.alpn_protocol)
+                # ALPN was advertised, so add it to the supported protocols
+                kp = [knownProto for knownProto in KnownALPNProtocols if knownProto.Name == serverHello.alpn_protocol]
+                if len(kp) == 1:
+                    serverALPNProtocols.add(kp[0])
+                elif len(kp) == 0:
+                    print("\tServer advertised unknown ALPN protocol '%s' - please contact sslxray dev to get this included!" % serverHello.alpn_protocol)
+                else:
+                    raise ValueError("Duplicate ALPN definition somewhere in KnownALPNProtocols!")
                 if DEBUG:
                     print("\tServer advertised ALPN protocol '%s'" % serverHello.alpn_protocol)
             if serverHello.next_protos is not None:
