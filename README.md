@@ -54,7 +54,10 @@ Version 0.1.5 supports the following features:
 
 The following features are immediately planned:
 
+* Migration to tlslite-ng
+* Reporting and logging/output engine
 * Proper SSLv2 packet support
+* Reporting when elliptic curve support varies between requested suites
 * SCSV extension support detection
 * Padding bit validation checks
 * Full suite enumeration (0x0000 to 0xFFFF)
@@ -62,18 +65,19 @@ The following features are immediately planned:
 * Broken/bad/known certificate checks (e.g. Debian OpenSSL stack contents bug)
 * Common DH prime checks
 * Weak / sketchy DH group detection
-* Reporting and logging/output engine
+* Improved ServerRandom tests: epoch prefix detection, bit position probabilities, additional compression algorithms
 
 ## FUTURE DEVELOPMENT
 
 The following features will be implemented in future, pending feasibility:
 
 * Superfluous chain checking on certs
-* Support for DSA certificates
-* Ability to save all traffic sent/recv to a pcap
+* Support for DSA certificates (should come with tlslite-ng migration)
+* Ability to save all traffic sent/recv to a pcap(ng)
 * PCI mode (checking compliance with PCI guidelines)
 * Client certificate support
-* Other stuff from Qualys SSL Scan
+* Various features from Qualys SSL Scan
+* TLS extension fuzzer
 
 ## CONTRIBUTION GUIDELINES
 

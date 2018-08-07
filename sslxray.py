@@ -1,5 +1,3 @@
-from __future__ import print_function
-from socket import *
 from tlslite.messages import *
 from tlslite.api import *
 from tlslite.constants import *
@@ -12,6 +10,7 @@ from issue_templates import *
 from zlib import *
 import argparse
 import binascii
+import socket
 
 #DEBUG = True
 DEBUG = False
@@ -84,16 +83,43 @@ def tryConnectionWithCipherSuites(version, cipherSuites, sendSSLv2=False, curves
 
     # build a ClientHello packet with appropriate settings and the selected cipher suites
     hello = ClientHello(ssl2=sendSSLv2)
-    hello.create(version, getRandomBytes(32), bytearray(0), cipherSuites, certificate_types=[CertificateType.x509], srpUsername=None, tack=False, supports_npn=enableNPN, alpn_protocols=alpnProtocols, serverName=args.sniName, ec=curves)
+
+    extensions = []
+
+    if len(alpnProtocols) > 0:
+        alpnExtension = ALPNExtension().create(alpnProtocols)
+        extensions.append(alpnExtension)
+
+    sigAlgsExtension = SignatureAlgorithmsExtension().create([
+        (HashAlgorithm.sha1, SignatureAlgorithm.ecdsa),
+        (HashAlgorithm.sha1, SignatureAlgorithm.rsa),
+        (HashAlgorithm.sha256, SignatureAlgorithm.ecdsa),
+        (HashAlgorithm.sha256, SignatureAlgorithm.rsa),
+        (HashAlgorithm.sha384, SignatureAlgorithm.ecdsa),
+        (HashAlgorithm.sha384, SignatureAlgorithm.rsa),
+        (HashAlgorithm.sha512, SignatureAlgorithm.ecdsa),
+        (HashAlgorithm.sha512, SignatureAlgorithm.rsa),
+    ])
+    extensions.append(sigAlgsExtension)
+
+    ecGroupsExtension = SupportedGroupsExtension().create([GroupName.secp256r1, GroupName.secp384r1, GroupName.secp521r1])
+    extensions.append(ecGroupsExtension)
+
+    ecPointFormatsExtension = ECPointFormatsExtension().create([0])
+    extensions.append(ecPointFormatsExtension)
+
+    hello.create(version, getRandomBytes(32), bytearray(0), cipherSuites, certificate_types=[CertificateType.x509], serverName=args.sniName, extensions=extensions)
     helloData = hello.write()
-    headerData = ""
-    if not sendSSLv2:
-        headerData = RecordHeader3().create(version, ContentType.handshake, len(helloData)).write()
+    headerData = bytearray()
+    if sendSSLv2:
+        headerData = RecordHeader2().create(len(helloData)).write()
+    else:
+        headerData = RecordHeader3().create((3,1), ContentType.handshake, len(helloData)).write()
     packet = headerData + helloData
 
     try:
         # connect and send the packet
-        sock = socket.socket(AF_INET, SOCK_STREAM)
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.connect( (args.host, args.port) )
         sock.send(packet)
 
@@ -104,6 +130,14 @@ def tryConnectionWithCipherSuites(version, cipherSuites, sendSSLv2=False, curves
         # rather than throwing an exception. we handle this here
         if response is None or len(response) == 0:
             return False
+
+        # if we sent an SSLv2 request that the server didn't understand it, it'll likely have sent
+        # back a TLS ALERT packet. our logic later assumes that an SSLv2 packet is always returned
+        # if we sent an SSLv2 packet, so this is to catch the error early.
+        if sendSSLv2:
+            # HACK: this is just ContentType=Alert(21), ProtocolVersion=3.x
+            if response[:2] == b'\x15\x03':
+                return False
 
         # parse the response packet header
         packetParser = Parser(bytearray(response))
@@ -133,7 +167,7 @@ def tryConnectionWithCipherSuites(version, cipherSuites, sendSSLv2=False, curves
 
         # if we sent SSLv2, we need to do some additional parsing and checks
         if sendSSLv2:
-            serverHello = ServerHelloSSL2().parse(packetParser, responseHeader)
+            serverHello = ServerHello2().parse(packetParser)
             # did we get back the same version we asked for?
             if serverHello.version != version:
                 # different version (wtf?)
@@ -148,13 +182,14 @@ def tryConnectionWithCipherSuites(version, cipherSuites, sendSSLv2=False, curves
             packetParser.get(1)
             serverHello = ServerHello().parse(packetParser)
             serverRandomValues.append(serverHello.random)
-            if serverHello.alpn_protocol is not None:
+            alpnExtensions = [] if serverHello.extensions is None else [ext for ext in serverHello.extensions if isinstance(ext, ALPNExtension)]
+            if len(alpnExtensions) > 0:
                 # ALPN was advertised, so add it to the supported protocols
-                kp = [knownProto for knownProto in KnownALPNProtocols if knownProto.Name == serverHello.alpn_protocol]
+                kp = [knownProto for knownProto in KnownALPNProtocols if bytearray(knownProto.Name, 'ascii') in alpnExtensions[0].protocol_names]
                 if len(kp) == 1:
                     serverALPNProtocols.add(kp[0])
                 elif len(kp) == 0:
-                    print("\tServer advertised unknown ALPN protocol '%s' - please contact sslxray dev to get this included!" % serverHello.alpn_protocol)
+                    print("\tServer advertised unknown ALPN protocol '%s' - please contact sslxray dev to get this included!" % str(alpnExtensions[0].protocol_names[0]))
                 else:
                     raise ValueError("Duplicate ALPN definition somewhere in KnownALPNProtocols!")
                 if DEBUG:
@@ -199,6 +234,8 @@ def testEllipticCurveSupport():
     """
     Enumerates the cipher suites accepted by the server.
     """
+    MIN_SECURE_CURVE_SIZE = 224 # as per NIST 800-57 Part 1 Rev 4, Jan 2016
+    shortCurves = []
     print("Testing elliptic curve support...")
     if len(supportedEllipticCurveCiphers) == 0:
         print("\tNo EC cipher supported, skipping test.")
@@ -209,6 +246,16 @@ def testEllipticCurveSupport():
         for curve in KnownCurves:
             if tryConnectionWithCipherSuites( protocolId, [cipher.ID], sendSSLv2=False, curves=[ curve['id'] ] ):
                 print("\t%s [0x%08x] curve: [0x%04x] %s" % (cipher.Name, cipher.ID, curve['id'], curve['name']))
+                if curve['size'] < MIN_SECURE_CURVE_SIZE:
+                    shortCurves.append(curve)
+    # this makes a temporary dictionary of form 'curve.id : curve' to uniquify the curves list
+    shortCurves = list({c['id']:c for c in shortCurves}.values())
+    if len(shortCurves) > 0:
+        print("")
+        print("Insecure curves (size < %d) supported:" % MIN_SECURE_CURVE_SIZE)
+        for shortCurve in shortCurves:
+            print("\t%s [0x%04x] - %d bits" % (shortCurve['name'], shortCurve['id'], shortCurve['size']))
+    print("")
 
 
 def testNPNSupport():
@@ -217,9 +264,9 @@ def testNPNSupport():
     The flag here is set inside tryConnectionWithCipherSuites()
     """
     if not serverAdvertisedNPN:
-        tryConnectionWithCipherSuites((3, 1), [cipher.ID for cipher in KnownCiphers], False, enableNPN=True)
-        tryConnectionWithCipherSuites((3, 2), [cipher.ID for cipher in KnownCiphers], False, enableNPN=True)
-        tryConnectionWithCipherSuites((3, 3), [cipher.ID for cipher in KnownCiphers], False, enableNPN=True)
+        tryConnectionWithCipherSuites((3, 1), [cipher.ID for cipher in KnownCiphers if cipher.Protocol == ProtocolType.TLS], False, enableNPN=True)
+        tryConnectionWithCipherSuites((3, 2), [cipher.ID for cipher in KnownCiphers if cipher.Protocol == ProtocolType.TLS], False, enableNPN=True)
+        tryConnectionWithCipherSuites((3, 3), [cipher.ID for cipher in KnownCiphers if cipher.Protocol == ProtocolType.TLS], False, enableNPN=True)
 
     if serverAdvertisedNPN:
         print("Server advertised NPN support.")
@@ -235,7 +282,7 @@ def testALPNSupport():
     if len(serverALPNProtocols) == 0:
         for alpnProto in KnownALPNProtocols:
             for tlsProtocol in [(3,1),(3,2),(3,3),(3,4)]:
-                if tryConnectionWithCipherSuites(tlsProtocol, [cipher.ID for cipher in KnownCiphers], False, alpnProtocols=[alpnProto.Name]):
+                if tryConnectionWithCipherSuites(tlsProtocol, [cipher.ID for cipher in KnownCiphers if cipher.Protocol == ProtocolType.TLS], False, alpnProtocols=[bytearray(alpnProto.Name, 'ascii')]):
                     serverALPNProtocols.add(alpnProto)
 
     if len([proto for proto in serverALPNProtocols if proto.Outdated]) > 0:
@@ -259,7 +306,7 @@ def testMACValidation():
         try:
             # formulate a bit mask based on the current mask bit index
             mask = bytearray([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
-            maskIndex = (maskBit - (maskBit % 8)) / 8
+            maskIndex = int((maskBit - (maskBit % 8)) / 8)
             mask[maskIndex] = (0x80 >> (maskBit % 8))
 
             if args.verbose:
@@ -269,13 +316,14 @@ def testMACValidation():
                 print("+", end="")
 
             # connect to the server and do a handshake
-            sock = socket.socket(AF_INET, SOCK_STREAM)
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.connect( (args.host, args.port) )
             tls = TLSConnection(sock)
-            tls.handshakeClientCert()
 
             # assign mask as tweak
             tls.macTweak = bytearray(mask)
+
+            tls.handshakeClientCert()
 
             # send a packet
             tls.send("GET / HTTP/1.0\n\n\n")
@@ -283,6 +331,10 @@ def testMACValidation():
             # try to read some data back
             data = tls.read()
         except (TLSRemoteAlert, socket.error):
+            rejected = True
+            if args.verbose:
+                print("\tBit %d rejected correctly!" % maskBit)
+        except (TLSAbruptCloseError, socket.error):
             rejected = True
             if args.verbose:
                 print("\tBit %d rejected correctly!" % maskBit)
@@ -317,12 +369,20 @@ def testServerRandom():
     protocols = filterProtocolsByUserOptions()
     attempts = 0
     while len(serverRandomValues) < PREFERRED_SAMPLE_SIZE and attempts < MAX_ITERATIONS:
-        tryConnectionWithCipherSuites((3,1), [cipher.ID for cipher in KnownCiphers], False, curves=[c['id'] for c in KnownCurves] )
-        tryConnectionWithCipherSuites((3,2), [cipher.ID for cipher in KnownCiphers], False, curves=[c['id'] for c in KnownCurves] )
-        tryConnectionWithCipherSuites((3,3), [cipher.ID for cipher in KnownCiphers], False, curves=[c['id'] for c in KnownCurves] )
+        tryConnectionWithCipherSuites( (3,1), [cipher.ID for cipher in KnownCiphers if cipher.Protocol == ProtocolType.TLS], False, curves=[c['id'] for c in KnownCurves] )
+        tryConnectionWithCipherSuites( (3,2), [cipher.ID for cipher in KnownCiphers if cipher.Protocol == ProtocolType.TLS], False, curves=[c['id'] for c in KnownCurves] )
+        tryConnectionWithCipherSuites( (3,3), [cipher.ID for cipher in KnownCiphers if cipher.Protocol == ProtocolType.TLS], False, curves=[c['id'] for c in KnownCurves] )
         attempts += 3
     if attempts >= MAX_ITERATIONS:
         print("\tCouldn't collect as much data as we would like to have.")
+
+    # most server random values start with a 4-byte timestamp, so we cut that out
+    serverRandomValuesFiltered = []
+    for randomValue in serverRandomValues:
+        serverRandomValuesFiltered.append(randomValue[4:])
+
+    serverRandomValues.clear()
+    serverRandomValues.extend(serverRandomValuesFiltered)
 
     for randomValue in serverRandomValues:
         randomData.extend(bytearray(randomValue))
@@ -344,10 +404,10 @@ def testServerRandom():
         print("\t\tAll server random values were unique.")
 
     # check compression
-    compressedData = zlib.compress(buffer(randomData), 9)
+    compressedData = zlib.compress(randomData, 9)
     compressionRatio = (len(compressedData) / float(len(randomData))) * 100.0
     if compressionRatio < 85.0:
-        print("\t\tServer random data was compressed to %0.1f%% of its original amount using zlib, indicates low entropy." % compressionRatio)
+        print("\t\tServer random data was compressed to %0.1f%% of its original amount using zlib, potentially indicates low entropy." % compressionRatio)
     else:
         print("\t\tServer random data was not easily compressed (ratio: %0.1f%%), looks high entropy." % compressionRatio)
 

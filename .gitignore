@@ -1,1 +1,7 @@
 *.py[cod]
+tlslite-ng/
+tlslite-old/
+tlslite-ng/*
+tlslite-old/*
+.idea/
+.idea/*

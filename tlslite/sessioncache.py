@@ -1,6 +1,7 @@
 # Authors: 
 #   Trevor Perrin
 #   Martin von Loewis - python 3 port
+#   Mirko Dziadzka - bugfix
 #
 # See the LICENSE file for legal information regarding use of this file.
 
@@ -28,14 +29,14 @@ class SessionCache(object):
     def __init__(self, maxEntries=10000, maxAge=14400):
         """Create a new SessionCache.
 
-        @type maxEntries: int
-        @param maxEntries: The maximum size of the cache.  When this
-        limit is reached, the oldest sessions will be deleted as
-        necessary to make room for new ones.  The default is 10000.
+        :type maxEntries: int
+        :param maxEntries: The maximum size of the cache.  When this
+            limit is reached, the oldest sessions will be deleted as
+            necessary to make room for new ones.  The default is 10000.
 
-        @type maxAge: int
-        @param maxAge:  The number of seconds before a session expires
-        from the cache.  The default is 14400 (i.e. 4 hours)."""
+        :type maxAge: int
+        :param maxAge:  The number of seconds before a session expires
+            from the cache.  The default is 14400 (i.e. 4 hours)."""
 
         self.lock = threading.Lock()
 
@@ -73,7 +74,7 @@ class SessionCache(object):
         try:
             #Add the new element
             self.entriesDict[bytes(sessionID)] = session
-            self.entriesList[self.lastIndex] = (sessionID, time.time())
+            self.entriesList[self.lastIndex] = (bytes(sessionID), time.time())
             self.lastIndex = (self.lastIndex+1) % len(self.entriesList)
 
             #If the cache is full, we delete the oldest element to make an
@@ -100,10 +101,3 @@ class SessionCache(object):
             else:
                 break
         self.firstIndex = index
-
-def _test():
-    import doctest, SessionCache
-    return doctest.testmod(SessionCache)
-
-if __name__ == "__main__":
-    _test()
