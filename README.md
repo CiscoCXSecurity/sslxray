@@ -33,7 +33,7 @@ Windows bugs:
 
 ## CURRENT FEATURES
 
-Version 0.1.5 supports the following features:
+Version 0.1.6 supports the following features:
 
 * Manual SNI selection
 * SSL/TLS cipher suite enumeration, including TLSv1.3 draft support
@@ -108,6 +108,11 @@ Style:
 If you're not sure, check existing style for precedent.
 
 ## CHANGELOG
+
+Version 0.1.6:
+* Updated the tlslite library to a newer version
+* Improved elliptic curve security checks
+* Fixed a bug that caused a crash during testing of MAC bits
 
 Version 0.1.5:
 * Project renamed from original codename to 'sslxray'
