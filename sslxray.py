@@ -1,3 +1,4 @@
+from __future__ import print_function
 from tlslite.messages import *
 from tlslite.api import *
 from tlslite.constants import *
@@ -11,6 +12,7 @@ from zlib import *
 import argparse
 import binascii
 import socket
+import sys
 
 #DEBUG = True
 DEBUG = False
@@ -381,7 +383,7 @@ def testServerRandom():
     for randomValue in serverRandomValues:
         serverRandomValuesFiltered.append(randomValue[4:])
 
-    serverRandomValues.clear()
+    del serverRandomValues[:]
     serverRandomValues.extend(serverRandomValuesFiltered)
 
     for randomValue in serverRandomValues:
@@ -404,7 +406,12 @@ def testServerRandom():
         print("\t\tAll server random values were unique.")
 
     # check compression
-    compressedData = zlib.compress(randomData, 9)
+    compressedData = None
+    if sys.version_info >= (3, 0):
+        compressedData = zlib.compress(randomData, 9)
+    else:
+        compressedData = zlib.compress(str(randomData), 9)
+
     compressionRatio = (len(compressedData) / float(len(randomData))) * 100.0
     if compressionRatio < 85.0:
         print("\t\tServer random data was compressed to %0.1f%% of its original amount using zlib, potentially indicates low entropy." % compressionRatio)
@@ -469,6 +476,7 @@ if __name__ == "__main__":
         # no host provided, this is mandatory for all cases except listing!
         parser.print_usage()
     else:
+        print("Running on Python %d.%d" % (sys.version_info[0], sys.version_info[1]))
         report = Report()
         print("Scanning %s (%s:%s).  [SNI: %s]" % (args.host, resolveHost(), args.port, args.sniName))
         testCipherSupport()

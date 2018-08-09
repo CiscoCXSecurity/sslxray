@@ -11,24 +11,28 @@ The long-term development plan is to build a local script which does everything 
 Prerequisites:
 
 * The included version of tlslite has been heavily modified. Do not try to use the original library!
-* Python 2.7
+* Python 2.7.15 or later, or an up-to-date version of Python 3.x (last tested with Python 3.6.x)
 * M2Crypto python library (`pip install m2crypto`)
 * pycrypto python library (`pip install pycrypto`)
+* ecdsa python library (`pip install ecdsa`)
 * hexdump python library (`pip install hexdump`) when running in debug mode
 * GMP and GMPY are optional but recommended for speed (`apt-get install python-gmpy`).
 
-Note that some of these require an up-to-date version of pip (8.x) and setuptools (20.x) which can be installed via:
+Note that some of these require an up-to-date version of pip and setuptools which can be installed via:
 * `python -m pip install --upgrade pip`
 * `python -m pip install --upgrade setuptools`
 
-Additionally, you may need the following prerequisites to install M2Crypto properly:
+**Linux support:**
+
+You may need the following prerequisites to install M2Crypto properly on Linux:
+
 * libssl-dev
 * python-dev
 
-Windows bugs:
+**Windows support:**
 
 * M2Crypto has a Windows package (m2cryptowin32 / m2cryptowin64) which must match the bitness of your Python install (usually 32-bit).
-* If you get an error about --single-version-externally-managed when installing M2Crypto, use `pip install --egg m2cryptowin32`
+* If you get an error about --single-version-externally-managed when installing M2Crypto, run `pip install -U wheel` first. The library documentation recommends `pip install --egg m2cryptowin32` but this is no longer supported.
 * pycrypto's installer requires Microsoft Visual C++ Compiler for Python, available here: http://aka.ms/vcpython27
 
 ## CURRENT FEATURES
@@ -88,7 +92,7 @@ If you want to push code to sslxray, please adhere to the following guidelines:
 General:
 
 * Please make sure your check actually works! (and not just against Google and Amazon)
-* I use PyCharm 5, I suggest you do too.
+* I use PyCharm, I suggest you do too.
 * If you're adding new files, please do so via PyCharm IDE, or let me know so I can properly update the project file.
 * Per change, update the version number by 0.0.1, and wrap such that 0.1.9 + 0.0.1 becomes 0.2.0
 * Update the changelog below
@@ -113,6 +117,7 @@ Version 0.1.6:
 * Updated the tlslite library to a newer version
 * Improved elliptic curve security checks
 * Fixed a bug that caused a crash during testing of MAC bits
+* Support for Python 2 and Python 3
 
 Version 0.1.5:
 * Project renamed from original codename to 'sslxray'
